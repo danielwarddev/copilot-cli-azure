@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+AZURE_FOUNDRY_RESOURCE_NAME="your-azure-foundry-resource-name"
+# Resource group name is only needed if you don't want to
+# set COPILOT_PROVIDER_API_KEY. If that env var isn't set,# the script will use the Azure CLI to fetch the API key.
+AZURE_RESOURCE_GROUP_NAME="your-azure-resource-group"
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat <<'EOF'
+Usage: copilot-azure <model-deployment-name> [copilot-args...]
+
+Examples:
+  copilot-azure gpt-5.6-terra
+  copilot-azure gpt-5.6-terra --help
+  copilot-azure my-other-model-deployment --some-copilot-flag
+EOF
+}
+
+if [[ $# -lt 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+  usage
+  exit 0
+fi
+
+deployment_name="$1"
+shift
+
+fetch_api_key_from_azure() {
+  az cognitiveservices account keys list \
+    --name "$AZURE_FOUNDRY_RESOURCE_NAME" \
+    --resource-group "$AZURE_RESOURCE_GROUP_NAME" \
+    --query key1 -o tsv 2>/dev/null
+}
+
+resolve_api_key() {
+  if [[ -n "${COPILOT_PROVIDER_API_KEY:-}" ]]; then
+    return 0
+  fi
+
+  if ! command -v az >/dev/null 2>&1; then
+    die "Azure CLI ('az') not found. Install it, or set COPILOT_PROVIDER_API_KEY."
+  fi
+
+  COPILOT_PROVIDER_API_KEY="$(fetch_api_key_from_azure)"
+
+  if [[ -z "$COPILOT_PROVIDER_API_KEY" ]]; then
+    die "Could not fetch a key for '$AZURE_FOUNDRY_RESOURCE_NAME' in '$AZURE_RESOURCE_GROUP_NAME'. Run 'az login', or set COPILOT_PROVIDER_API_KEY."
+  fi
+}
+
+resolve_api_key
+
+export COPILOT_PROVIDER_TYPE="azure"
+export COPILOT_PROVIDER_BASE_URL="https://${AZURE_FOUNDRY_RESOURCE_NAME}.openai.azure.com/openai/deployments/${deployment_name}"
+export COPILOT_PROVIDER_API_KEY
+export COPILOT_MODEL="${deployment_name}"
+
+exec copilot "$@"
