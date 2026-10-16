@@ -42,8 +42,10 @@ if ($args.Count -eq 0) {
     }
 
     $prices = @($modelRows | ForEach-Object {
-        if ($_.input_per_1m -and $_.output_per_1m) {
-            '$' + $_.input_per_1m + ' / $' + $_.output_per_1m
+        if ($_.input_per_1m -and $_.cached_input_per_1m -and $_.cache_write_per_1m -and $_.output_per_1m) {
+            $rates = @($_.input_per_1m, $_.cached_input_per_1m, $_.cache_write_per_1m, $_.output_per_1m) |
+                ForEach-Object { '$' + ($_ -replace '\.00$', '') }
+            $rates -join ' / '
         }
         else { '' }
     })
@@ -51,7 +53,7 @@ if ($args.Count -eq 0) {
     $priceWidth = ($prices | Measure-Object -Property Length -Maximum).Maximum
     $showPrices = $priceWidth -gt 0 -and ($nameWidth + $priceWidth + 5) -lt $Host.UI.RawUI.WindowSize.Width
     Write-Host 'Choose a model (Up/Down, Enter; Esc to cancel):'
-    if ($showPrices) { Write-Host 'Prices: USD per 1M tokens (input / output)' }
+    if ($showPrices) { Write-Host 'Prices: USD per 1M tokens (in / cached / cache write / out)' }
     $current = 0
     for ($index = 0; $index -lt $models.Count; $index++) {
         $marker = if ($index -eq $current) { '>' } else { ' ' }
