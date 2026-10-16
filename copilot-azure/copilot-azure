@@ -13,22 +13,52 @@ die() {
 
 usage() {
   cat <<'EOF'
-Usage: copilot-azure <model-deployment-name> [copilot-args...]
+Usage: copilot-azure [model-deployment-name] [copilot-args...]
 
 Examples:
+  copilot-azure
   copilot-azure gpt-5.6-terra
   copilot-azure gpt-5.6-terra --help
-  copilot-azure my-other-model-deployment --some-copilot-flag
+  copilot-azure gpt-5.6-luna --some-copilot-flag
 EOF
 }
 
-if [[ $# -lt 1 || "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
+if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
 fi
 
-deployment_name="$1"
-shift
+pricing_file="$HOME/.copilot/azure-pricing-status-line/foundry-model-pricing.csv"
+[[ -f "$pricing_file" ]] || die "Pricing file not found at '$pricing_file'."
+
+models=()
+while IFS=, read -r model_key _ || [[ -n "$model_key" ]]; do
+  model_key="${model_key%$'\r'}"
+  if [[ -n "$model_key" && "$model_key" != "model_key" ]]; then
+    models+=("$model_key")
+  fi
+done < "$pricing_file"
+[[ ${#models[@]} -gt 0 ]] || die "No models found in '$pricing_file'."
+
+if [[ $# -eq 0 ]]; then
+  PS3="Choose a model: "
+  select deployment_name in "${models[@]}"; do
+    [[ -n "$deployment_name" ]] && break
+    echo "Invalid selection." >&2
+  done
+  [[ -n "${deployment_name:-}" ]] || die "No model selected."
+else
+  deployment_name="$1"
+  shift
+  found=false
+  for model in "${models[@]}"; do
+    if [[ "$model" == "$deployment_name" ]]; then
+      found=true
+      break
+    fi
+  done
+  [[ "$found" == true ]] || die "Model '$deployment_name' is not in '$pricing_file'."
+fi
 
 fetch_api_key_from_azure() {
   az cognitiveservices account keys list \

@@ -7,22 +7,58 @@ $AZURE_RESOURCE_GROUP_NAME = "your-azure-resource-group"
 
 function Show-Usage {
     @"
-Usage: copilot-azure <model-deployment-name> [copilot-args...]
+Usage: copilot-azure [model-deployment-name] [copilot-args...]
 
 Examples:
+  copilot-azure
   copilot-azure gpt-5.6-terra
   copilot-azure gpt-5.6-terra --help
-  copilot-azure my-other-model-deployment --some-copilot-flag
+    copilot-azure gpt-5.6-luna --some-copilot-flag
 "@ | Write-Output
 }
 
-if ($args.Count -lt 1 -or $args[0] -in @("-h", "--help")) {
+if ($args[0] -in @("-h", "--help")) {
     Show-Usage
     exit 0
 }
 
-$deploymentName = $args[0]
-$copilotArgs = @($args | Select-Object -Skip 1)
+$pricingPath = Join-Path $HOME '.copilot\azure-pricing-status-line\foundry-model-pricing.csv'
+if (-not (Test-Path $pricingPath)) {
+    Write-Error "Pricing file not found at '$pricingPath'."
+    exit 1
+}
+
+$models = @(Import-Csv $pricingPath | ForEach-Object { $_.model_key.Trim() } | Where-Object { $_ })
+if ($models.Count -eq 0) {
+    Write-Error "No models found in '$pricingPath'."
+    exit 1
+}
+
+if ($args.Count -eq 0) {
+    for ($index = 0; $index -lt $models.Count; $index++) {
+        Write-Host ('{0}. {1}' -f ($index + 1), $models[$index])
+    }
+    do {
+        $selection = Read-Host 'Choose a model'
+        if ([string]::IsNullOrWhiteSpace($selection)) {
+            Write-Error 'No model selected.'
+            exit 1
+        }
+        $choice = 0
+        $valid = [int]::TryParse($selection, [ref]$choice) -and $choice -ge 1 -and $choice -le $models.Count
+        if (-not $valid) { Write-Host 'Invalid selection.' }
+    } until ($valid)
+    $deploymentName = $models[$choice - 1]
+    $copilotArgs = @()
+}
+else {
+    $deploymentName = $args[0]
+    $copilotArgs = @($args | Select-Object -Skip 1)
+    if ($deploymentName -cnotin $models) {
+        Write-Error "Model '$deploymentName' is not in '$pricingPath'."
+        exit 1
+    }
+}
 
 if ([string]::IsNullOrWhiteSpace($env:COPILOT_PROVIDER_API_KEY)) {
     if (-not (Get-Command az -ErrorAction SilentlyContinue)) {

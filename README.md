@@ -1,6 +1,6 @@
 # Copilot CLI with Azure Foundry
 
-This repo contains two helper scripts for using Azure Foundry-hosted models with GitHub Copilot CLI using BYOK (bring-your-own-key).
+This repo contains two helper scripts for using Azure Foundry-hosted models with GitHub Copilot CLI using BYOK (bring-your-own-key). They must be used together to work.
 
 This is also the companion repo for the following blog post: [How to use Azure models in GitHub Copilot CLI and VS Code](https://daninacan.com/how-to-use-azure-models-in-github-copilot-cli-and-vs-code). Go there if you need to see how to deploy an Azure Foundry model and use it with GitHub Copilot.
 
@@ -19,6 +19,8 @@ After:
 ```bash
 copilot-azure your-model-deployment
 ```
+
+You can run `copilot-azure` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
 
 2. A custom status line script that shows Copilot's  spend in Azure from the Copilot CLI. This is what it looks like:
 
