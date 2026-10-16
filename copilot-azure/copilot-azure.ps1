@@ -35,20 +35,40 @@ if ($models.Count -eq 0) {
 }
 
 if ($args.Count -eq 0) {
-    for ($index = 0; $index -lt $models.Count; $index++) {
-        Write-Host ('{0}. {1}' -f ($index + 1), $models[$index])
+    if ([Console]::IsInputRedirected) {
+        Write-Error 'Model selection requires a terminal. Pass a model name directly instead.'
+        exit 1
     }
-    do {
-        $selection = Read-Host 'Choose a model'
-        if ([string]::IsNullOrWhiteSpace($selection)) {
+
+    Write-Host 'Choose a model (Up/Down, Enter; Esc to cancel):'
+    $current = 0
+    for ($index = 0; $index -lt $models.Count; $index++) {
+        $marker = if ($index -eq $current) { '>' } else { ' ' }
+        Write-Host (' {0} {1}' -f $marker, $models[$index])
+    }
+
+    while ($true) {
+        $key = $Host.UI.RawUI.ReadKey('NoEcho,IncludeKeyDown')
+        if ($key.VirtualKeyCode -eq 13) { break }
+        if ($key.VirtualKeyCode -eq 27) {
             Write-Error 'No model selected.'
             exit 1
         }
-        $choice = 0
-        $valid = [int]::TryParse($selection, [ref]$choice) -and $choice -ge 1 -and $choice -le $models.Count
-        if (-not $valid) { Write-Host 'Invalid selection.' }
-    } until ($valid)
-    $deploymentName = $models[$choice - 1]
+        if ($key.VirtualKeyCode -eq 38 -and $current -gt 0) {
+            $current--
+        }
+        elseif ($key.VirtualKeyCode -eq 40 -and $current -lt $models.Count - 1) {
+            $current++
+        }
+        else { continue }
+
+        Write-Host -NoNewline ('{0}[{1}A' -f [char]27, $models.Count)
+        for ($index = 0; $index -lt $models.Count; $index++) {
+            $marker = if ($index -eq $current) { '>' } else { ' ' }
+            Write-Host (' {0} {1}{2}[K' -f $marker, $models[$index], [char]27)
+        }
+    }
+    $deploymentName = $models[$current]
     $copilotArgs = @()
 }
 else {

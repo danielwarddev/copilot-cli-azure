@@ -41,12 +41,46 @@ done < "$pricing_file"
 [[ ${#models[@]} -gt 0 ]] || die "No models found in '$pricing_file'."
 
 if [[ $# -eq 0 ]]; then
-  PS3="Choose a model: "
-  select deployment_name in "${models[@]}"; do
-    [[ -n "$deployment_name" ]] && break
-    echo "Invalid selection." >&2
+  [[ -t 0 && -t 2 ]] || die "Model selection requires a terminal. Pass a model name directly instead."
+  tput civis >&2 || true
+  trap 'tput cnorm >&2 || true' EXIT
+  trap 'exit 130' INT
+  trap 'exit 143' TERM
+  echo "Choose a model (Up/Down, Enter; Esc to cancel):" >&2
+  current=0
+  draw_models() {
+    for index in "${!models[@]}"; do
+      marker=' '
+      [[ "$index" -eq "$current" ]] && marker='>'
+      printf ' %s %s\033[K\n' "$marker" "${models[$index]}" >&2
+    done
+  }
+  draw_models
+  while true; do
+    IFS= read -rsn1 key || die "No model selected."
+    if [[ "$key" == $'\e' ]]; then
+      sequence=''
+      IFS= read -rsN2 -t 1 sequence || true
+      case "$sequence" in
+        '[A'|'OA')
+          if (( current > 0 )); then current=$((current - 1)); fi ;;
+        '[B'|'OB')
+          if (( current < ${#models[@]} - 1 )); then current=$((current + 1)); fi ;;
+        '') die "No model selected." ;;
+      esac
+    elif [[ -z "$key" || "$key" == $'\r' ]]; then
+      break
+    elif [[ "$key" == 'k' ]]; then
+      if (( current > 0 )); then current=$((current - 1)); fi
+    elif [[ "$key" == 'j' ]]; then
+      if (( current < ${#models[@]} - 1 )); then current=$((current + 1)); fi
+    fi
+    printf '\033[%dA' "${#models[@]}" >&2
+    draw_models
   done
-  [[ -n "${deployment_name:-}" ]] || die "No model selected."
+  tput cnorm >&2 || true
+  trap - EXIT INT TERM
+  deployment_name="${models[$current]}"
 else
   deployment_name="$1"
   shift
