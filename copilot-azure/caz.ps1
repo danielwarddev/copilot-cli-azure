@@ -17,6 +17,9 @@ Examples:
 "@ | Write-Output
 }
 
+Write-Host
+Write-Host '=== Copilot CLI (BYOK) with Azure Foundry models ==='
+
 if ($args[0] -in @("-h", "--help")) {
     Show-Usage
     exit 0

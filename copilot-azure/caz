@@ -23,6 +23,8 @@ Examples:
 EOF
 }
 
+printf '\n=== Copilot CLI (BYOK) with Azure Foundry models ===\n' >&2
+
 if [[ "${1:-}" == "-h" || "${1:-}" == "--help" ]]; then
   usage
   exit 0
