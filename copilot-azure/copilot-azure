@@ -32,21 +32,41 @@ pricing_file="$HOME/.copilot/azure-pricing-status-line/foundry-model-pricing.csv
 [[ -f "$pricing_file" ]] || die "Pricing file not found at '$pricing_file'."
 
 models=()
-model_prices=()
+input_prices=()
+output_prices=()
+cache_read_prices=()
+cache_write_prices=()
 name_width=0
-price_width=0
+input_width=2
+output_width=3
+cache_read_width=10
+cache_write_width=11
+has_prices=false
 while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_write_per_1m output_per_1m || [[ -n "$model_key" ]]; do
   model_key="${model_key%$'\r'}"
   if [[ -n "$model_key" && "$model_key" != "model_key" ]]; then
     models+=("$model_key")
-    price=''
+    input_price=''
+    output_price=''
+    cache_read_price=''
+    cache_write_price=''
     output_per_1m="${output_per_1m%$'\r'}"
     if [[ -n "$input_per_1m" && -n "$cached_input_per_1m" && -n "$cache_write_per_1m" && -n "$output_per_1m" ]]; then
-      price="\$${input_per_1m%.00} / \$${cached_input_per_1m%.00} / \$${cache_write_per_1m%.00} / \$${output_per_1m%.00}"
+      input_price="\$${input_per_1m%.00}"
+      output_price="\$${output_per_1m%.00}"
+      cache_read_price="\$${cached_input_per_1m%.00}"
+      cache_write_price="\$${cache_write_per_1m%.00}"
+      has_prices=true
     fi
-    model_prices+=("$price")
+    input_prices+=("$input_price")
+    output_prices+=("$output_price")
+    cache_read_prices+=("$cache_read_price")
+    cache_write_prices+=("$cache_write_price")
     if (( ${#model_key} > name_width )); then name_width=${#model_key}; fi
-    if (( ${#price} > price_width )); then price_width=${#price}; fi
+    if (( ${#input_price} > input_width )); then input_width=${#input_price}; fi
+    if (( ${#output_price} > output_width )); then output_width=${#output_price}; fi
+    if (( ${#cache_read_price} > cache_read_width )); then cache_read_width=${#cache_read_price}; fi
+    if (( ${#cache_write_price} > cache_write_width )); then cache_write_width=${#cache_write_price}; fi
   fi
 done < "$pricing_file"
 [[ ${#models[@]} -gt 0 ]] || die "No models found in '$pricing_file'."
@@ -55,20 +75,25 @@ if [[ $# -eq 0 ]]; then
   [[ -t 0 && -t 2 ]] || die "Model selection requires a terminal. Pass a model name directly instead."
   terminal_width=$(tput cols 2>/dev/null || printf '80')
   show_prices=false
-  if (( price_width > 0 && name_width + price_width + 5 < terminal_width )); then show_prices=true; fi
+  if [[ "$has_prices" == true ]] && (( 3 + name_width + input_width + output_width + cache_read_width + cache_write_width + 12 < terminal_width )); then show_prices=true; fi
   tput civis >&2 || true
   trap 'tput cnorm >&2 || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  echo "Choose a model (Up/Down, Enter; Esc to cancel):" >&2
-  if [[ "$show_prices" == true ]]; then echo 'Prices: USD per 1M tokens (in / cached / cache write / out)' >&2; fi
+  printf '\nChoose a model (Up/Down, Enter; Esc to cancel):\n\n' >&2
+  if [[ "$show_prices" == true ]]; then
+    printf 'Costs are in USD and per 1M tokens\n' >&2
+    printf '   %-*s   %-*s   %-*s   %-*s   %s\n' "$name_width" 'model' "$input_width" 'in' "$output_width" 'out' "$cache_read_width" 'cache read' 'cache write' >&2
+    printf -v divider '%*s' "$((name_width + input_width + output_width + cache_read_width + cache_write_width + 12))" ''
+    printf '   %s\n' "${divider// /-}" >&2
+  fi
   current=0
   draw_models() {
     for index in "${!models[@]}"; do
       marker=' '
       [[ "$index" -eq "$current" ]] && marker='>'
       if [[ "$show_prices" == true ]]; then
-        printf ' %s %-*s  %s\033[K\n' "$marker" "$name_width" "${models[$index]}" "${model_prices[$index]}" >&2
+        printf ' %s %-*s   %-*s   %-*s   %-*s   %s\033[K\n' "$marker" "$name_width" "${models[$index]}" "$input_width" "${input_prices[$index]}" "$output_width" "${output_prices[$index]}" "$cache_read_width" "${cache_read_prices[$index]}" "${cache_write_prices[$index]}" >&2
       else
         printf ' %s %s\033[K\n' "$marker" "${models[$index]}" >&2
       fi

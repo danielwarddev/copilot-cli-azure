@@ -41,23 +41,36 @@ if ($args.Count -eq 0) {
         exit 1
     }
 
-    $prices = @($modelRows | ForEach-Object {
+    $priceRows = @($modelRows | ForEach-Object {
         if ($_.input_per_1m -and $_.cached_input_per_1m -and $_.cache_write_per_1m -and $_.output_per_1m) {
-            $rates = @($_.input_per_1m, $_.cached_input_per_1m, $_.cache_write_per_1m, $_.output_per_1m) |
+            $rates = @($_.input_per_1m, $_.output_per_1m, $_.cached_input_per_1m, $_.cache_write_per_1m) |
                 ForEach-Object { '$' + ($_ -replace '\.00$', '') }
-            $rates -join ' / '
         }
-        else { '' }
+        else { $rates = @('', '', '', '') }
+        [pscustomobject]@{ Input = $rates[0]; Output = $rates[1]; CacheRead = $rates[2]; CacheWrite = $rates[3] }
     })
     $nameWidth = ($models | Measure-Object -Property Length -Maximum).Maximum
-    $priceWidth = ($prices | Measure-Object -Property Length -Maximum).Maximum
-    $showPrices = $priceWidth -gt 0 -and ($nameWidth + $priceWidth + 5) -lt $Host.UI.RawUI.WindowSize.Width
+    $inputWidth = [Math]::Max(2, ($priceRows | ForEach-Object { $_.Input.Length } | Measure-Object -Maximum).Maximum)
+    $outputWidth = [Math]::Max(3, ($priceRows | ForEach-Object { $_.Output.Length } | Measure-Object -Maximum).Maximum)
+    $cacheReadWidth = [Math]::Max(10, ($priceRows | ForEach-Object { $_.CacheRead.Length } | Measure-Object -Maximum).Maximum)
+    $cacheWriteWidth = [Math]::Max(11, ($priceRows | ForEach-Object { $_.CacheWrite.Length } | Measure-Object -Maximum).Maximum)
+    $hasPrices = ($priceRows | Where-Object { $_.Input } | Measure-Object).Count -gt 0
+    $showPrices = $hasPrices -and (3 + $nameWidth + $inputWidth + $outputWidth + $cacheReadWidth + $cacheWriteWidth + 12) -lt $Host.UI.RawUI.WindowSize.Width
+    Write-Host
     Write-Host 'Choose a model (Up/Down, Enter; Esc to cancel):'
-    if ($showPrices) { Write-Host 'Prices: USD per 1M tokens (in / cached / cache write / out)' }
+    Write-Host
+    if ($showPrices) {
+        Write-Host 'Costs are in USD and per 1M tokens'
+        Write-Host ('   {0}   {1}   {2}   {3}   {4}' -f 'model'.PadRight($nameWidth), 'in'.PadRight($inputWidth), 'out'.PadRight($outputWidth), 'cache read'.PadRight($cacheReadWidth), 'cache write')
+        Write-Host ('   ' + ('-' * ($nameWidth + $inputWidth + $outputWidth + $cacheReadWidth + $cacheWriteWidth + 12)))
+    }
     $current = 0
     for ($index = 0; $index -lt $models.Count; $index++) {
         $marker = if ($index -eq $current) { '>' } else { ' ' }
-        $label = if ($showPrices) { '{0}  {1}' -f $models[$index].PadRight($nameWidth), $prices[$index] } else { $models[$index] }
+        $label = if ($showPrices) {
+            $rate = $priceRows[$index]
+            '{0}   {1}   {2}   {3}   {4}' -f $models[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
+        } else { $models[$index] }
         Write-Host (' {0} {1}' -f $marker, $label)
     }
 
@@ -79,7 +92,10 @@ if ($args.Count -eq 0) {
         Write-Host -NoNewline ('{0}[{1}A' -f [char]27, $models.Count)
         for ($index = 0; $index -lt $models.Count; $index++) {
             $marker = if ($index -eq $current) { '>' } else { ' ' }
-            $label = if ($showPrices) { '{0}  {1}' -f $models[$index].PadRight($nameWidth), $prices[$index] } else { $models[$index] }
+            $label = if ($showPrices) {
+                $rate = $priceRows[$index]
+                '{0}   {1}   {2}   {3}   {4}' -f $models[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
+            } else { $models[$index] }
             Write-Host (' {0} {1}{2}[K' -f $marker, $label, [char]27)
         }
     }
