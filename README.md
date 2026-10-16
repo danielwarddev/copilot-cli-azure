@@ -6,7 +6,7 @@ This is also the companion repo for the following blog post: [How to use Azure m
 
 See below for instructions. Each script has a Bash and a Powershell version for compatibility across different OS; pick whichever fits your environment. The two helper scripts are:
 
-1. `copilot-azure`, a script that starts Copilot CLI with the needed environment variables so you don't have to type them out or copy-paste every time.
+1. `caz`, a script that starts Copilot CLI with the needed environment variables so you don't have to type them out or copy-paste every time.
 
 Before:
 
@@ -17,23 +17,23 @@ COPILOT_PROVIDER_TYPE=azure COPILOT_PROVIDER_BASE_URL=https://your-foundry-proje
 After:
 
 ```bash
-copilot-azure your-model-deployment
+caz your-model-deployment
 ```
 
-You can run `copilot-azure` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
+You can run `caz` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
 
 If the terminal is wide enough, the model picker shows model costs in USD per million tokens.
 2. A custom status line script that shows Copilot's  spend in Azure from the Copilot CLI. This is what it looks like:
 
 ![Status line screen](status-line-screenshot.jpg)
 
-## 1. copilot-azure script
+## 1. caz script
 
 This script is essentially just a wrapper for the larger command above. To use it, follow these steps:
 
 1. Place the script file(s) somewhere in your PATH.
-    - For Windows using Powershell, copy both the .cmd and .ps1 file.
-	- For macOS, Linux, and Windows using Bash, copy the Bash file (the one without an extension), then make it executable with `chmod +x /path/to/copilot-azure`.
+    - For Windows using Powershell, copy both `copilot-azure/caz.cmd` and `copilot-azure/caz.ps1`.
+	- For macOS, Linux, and Windows using Bash, copy `copilot-azure/caz` (the Bash file without an extension), then make it executable with `chmod +x /path/to/caz`.
 2. This script needs the API key shown on your Azure Foundry project's landing page (since Copilot CLI needs it). Rather than storing it as plain text, the script gives you two options:
 	- Set it in the `COPILOT_PROVIDER_API_KEY` environment variable.
 	- Install the [Azure CLI](https://github.com/Azure/azure-cli) and be logged in. You will also need permission to list keys for the Azure Foundry resource. If `COPILOT_PROVIDER_API_KEY` isn't set, the script will instead fetch the API key from your account using the Azure CLI.

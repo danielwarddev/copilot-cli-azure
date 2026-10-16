@@ -7,13 +7,13 @@ $AZURE_RESOURCE_GROUP_NAME = "your-azure-resource-group"
 
 function Show-Usage {
     @"
-Usage: copilot-azure [model-deployment-name] [copilot-args...]
+Usage: caz [model-deployment-name] [copilot-args...]
 
 Examples:
-  copilot-azure
-  copilot-azure gpt-5.6-terra
-  copilot-azure gpt-5.6-terra --help
-    copilot-azure gpt-5.6-luna --some-copilot-flag
+    caz
+    caz gpt-5.6-terra
+    caz gpt-5.6-terra --help
+        caz gpt-5.6-luna --some-copilot-flag
 "@ | Write-Output
 }
 
