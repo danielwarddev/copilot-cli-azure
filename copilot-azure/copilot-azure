@@ -58,6 +58,7 @@ resolve_api_key
 export COPILOT_PROVIDER_TYPE="azure"
 export COPILOT_PROVIDER_BASE_URL="https://${AZURE_FOUNDRY_RESOURCE_NAME}.openai.azure.com/openai/deployments/${deployment_name}"
 export COPILOT_PROVIDER_API_KEY
+export COPILOT_PROVIDER_WIRE_API="responses"
 export COPILOT_MODEL="${deployment_name}"
 
 exec copilot "$@"

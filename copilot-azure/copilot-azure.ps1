@@ -45,6 +45,7 @@ if ([string]::IsNullOrWhiteSpace($env:COPILOT_PROVIDER_API_KEY)) {
 
 $env:COPILOT_PROVIDER_TYPE = "azure"
     $env:COPILOT_PROVIDER_BASE_URL = "https://$AZURE_FOUNDRY_RESOURCE_NAME.openai.azure.com/openai/deployments/$deploymentName"
+$env:COPILOT_PROVIDER_WIRE_API = "responses"
 $env:COPILOT_MODEL = $deploymentName
 
 & copilot @copilotArgs
