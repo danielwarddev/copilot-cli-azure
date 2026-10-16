@@ -22,6 +22,8 @@ copilot-azure your-model-deployment
 
 You can run `copilot-azure` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
 
+If the terminal is wide enough, the picker shows input and output prices in USD per million tokens.
+
 2. A custom status line script that shows Copilot's  spend in Azure from the Copilot CLI. This is what it looks like:
 
 ![Status line screen](status-line-screenshot.jpg)
