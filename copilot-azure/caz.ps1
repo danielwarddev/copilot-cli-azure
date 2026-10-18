@@ -38,6 +38,31 @@ if ($models.Count -eq 0) {
     exit 1
 }
 
+$effortOptions = @($modelRows | ForEach-Object {
+    $levels = @()
+    if ($_.reasoning_efforts) {
+        $levels = @($_.reasoning_efforts -split '\|')
+        foreach ($level in $levels) {
+            if ($level -cnotin @('none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max')) {
+                throw "Invalid reasoning effort '$level' for '$($_.model_key)'."
+            }
+        }
+    }
+    $levels = @($levels | Where-Object { $_ -ne 'none' })
+    $startingEffort = if ($_.default_reasoning_effort) { $_.default_reasoning_effort } else { 'medium' }
+    $effortIndex = [Array]::IndexOf($levels, $startingEffort)
+    if ($_.default_reasoning_effort -and $effortIndex -lt 0) {
+        throw "Invalid default reasoning effort '$startingEffort' for '$($_.model_key)'."
+    }
+    [pscustomobject]@{ Levels = $levels; Index = [Math]::Max(0, $effortIndex) }
+})
+$modelLabels = @($models)
+for ($index = 0; $index -lt $models.Count; $index++) {
+    $option = $effortOptions[$index]
+    $effort = if ($option.Levels.Count) { $option.Levels[$option.Index] } else { 'N/A' }
+    $modelLabels[$index] += " [$effort]"
+}
+
 if ($args.Count -eq 0) {
     if ([Console]::IsInputRedirected) {
         Write-Error 'Model selection requires a terminal. Pass a model name directly instead.'
@@ -52,7 +77,11 @@ if ($args.Count -eq 0) {
         else { $rates = @('', '', '', '') }
         [pscustomobject]@{ Input = $rates[0]; Output = $rates[1]; CacheRead = $rates[2]; CacheWrite = $rates[3] }
     })
-    $nameWidth = ($models | Measure-Object -Property Length -Maximum).Maximum
+    $allLabels = @($modelLabels)
+    for ($index = 0; $index -lt $models.Count; $index++) {
+        foreach ($level in $effortOptions[$index].Levels) { $allLabels += "$($models[$index]) [$level]" }
+    }
+    $nameWidth = [Math]::Max(14, ($allLabels | Measure-Object -Property Length -Maximum).Maximum)
     $inputWidth = [Math]::Max(2, ($priceRows | ForEach-Object { $_.Input.Length } | Measure-Object -Maximum).Maximum)
     $outputWidth = [Math]::Max(3, ($priceRows | ForEach-Object { $_.Output.Length } | Measure-Object -Maximum).Maximum)
     $cacheReadWidth = [Math]::Max(10, ($priceRows | ForEach-Object { $_.CacheRead.Length } | Measure-Object -Maximum).Maximum)
@@ -60,11 +89,11 @@ if ($args.Count -eq 0) {
     $hasPrices = ($priceRows | Where-Object { $_.Input } | Measure-Object).Count -gt 0
     $showPrices = $hasPrices -and (3 + $nameWidth + $inputWidth + $outputWidth + $cacheReadWidth + $cacheWriteWidth + 12) -lt $Host.UI.RawUI.WindowSize.Width
     Write-Host
-    Write-Host 'Choose a model (Up/Down, Enter; Esc to cancel):'
+    Write-Host 'Choose a model (Up/Down; Left/Right effort; Enter; Esc to cancel):'
     Write-Host
     if ($showPrices) {
         Write-Host 'Costs are in USD and per 1M tokens'
-        Write-Host ('   {0}   {1}   {2}   {3}   {4}' -f 'model'.PadRight($nameWidth), 'in'.PadRight($inputWidth), 'out'.PadRight($outputWidth), 'cache read'.PadRight($cacheReadWidth), 'cache write')
+        Write-Host ('   {0}   {1}   {2}   {3}   {4}' -f 'model [effort]'.PadRight($nameWidth), 'in'.PadRight($inputWidth), 'out'.PadRight($outputWidth), 'cache read'.PadRight($cacheReadWidth), 'cache write')
         Write-Host ('   ' + ('-' * ($nameWidth + $inputWidth + $outputWidth + $cacheReadWidth + $cacheWriteWidth + 12)))
     }
     $current = 0
@@ -72,8 +101,8 @@ if ($args.Count -eq 0) {
         $marker = if ($index -eq $current) { '>' } else { ' ' }
         $label = if ($showPrices) {
             $rate = $priceRows[$index]
-            '{0}   {1}   {2}   {3}   {4}' -f $models[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
-        } else { $models[$index] }
+            '{0}   {1}   {2}   {3}   {4}' -f $modelLabels[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
+        } else { $modelLabels[$index] }
         Write-Host (' {0} {1}' -f $marker, $label)
     }
 
@@ -90,6 +119,13 @@ if ($args.Count -eq 0) {
         elseif ($key.VirtualKeyCode -eq 40 -and $current -lt $models.Count - 1) {
             $current++
         }
+        elseif ($key.VirtualKeyCode -in @(37, 39)) {
+            $option = $effortOptions[$current]
+            if ($option.Levels.Count -le 1) { continue }
+            $direction = if ($key.VirtualKeyCode -eq 39) { 1 } else { -1 }
+            $option.Index = ($option.Index + $direction + $option.Levels.Count) % $option.Levels.Count
+            $modelLabels[$current] = '{0} [{1}]' -f $models[$current], $option.Levels[$option.Index]
+        }
         else { continue }
 
         Write-Host -NoNewline ('{0}[{1}A' -f [char]27, $models.Count)
@@ -97,13 +133,16 @@ if ($args.Count -eq 0) {
             $marker = if ($index -eq $current) { '>' } else { ' ' }
             $label = if ($showPrices) {
                 $rate = $priceRows[$index]
-                '{0}   {1}   {2}   {3}   {4}' -f $models[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
-            } else { $models[$index] }
+                '{0}   {1}   {2}   {3}   {4}' -f $modelLabels[$index].PadRight($nameWidth), $rate.Input.PadRight($inputWidth), $rate.Output.PadRight($outputWidth), $rate.CacheRead.PadRight($cacheReadWidth), $rate.CacheWrite
+            } else { $modelLabels[$index] }
             Write-Host (' {0} {1}{2}[K' -f $marker, $label, [char]27)
         }
     }
     $deploymentName = $models[$current]
     $copilotArgs = @()
+    $option = $effortOptions[$current]
+    if ($option.Levels.Count) { $copilotArgs = @('--reasoning-effort', $option.Levels[$option.Index]) }
+    $selectedIndex = $current
     Write-Host 'Launching Copilot CLI...'
 }
 else {
@@ -113,6 +152,7 @@ else {
         Write-Error "Model '$deploymentName' is not in '$pricingPath'."
         exit 1
     }
+    $selectedIndex = [Array]::IndexOf($models, $deploymentName)
 }
 
 if ([string]::IsNullOrWhiteSpace($env:COPILOT_PROVIDER_API_KEY)) {
@@ -138,6 +178,9 @@ $env:COPILOT_PROVIDER_TYPE = "azure"
     $env:COPILOT_PROVIDER_BASE_URL = "https://$AZURE_FOUNDRY_RESOURCE_NAME.openai.azure.com/openai/deployments/$deploymentName"
 $env:COPILOT_PROVIDER_WIRE_API = "responses"
 $env:COPILOT_MODEL = $deploymentName
+$baseModel = $modelRows[$selectedIndex].base_model
+$env:COPILOT_PROVIDER_MODEL_ID = if ($baseModel) { $baseModel.Trim() } else { $deploymentName }
+$env:COPILOT_PROVIDER_WIRE_MODEL = $deploymentName
 
 & copilot @copilotArgs
 exit $LASTEXITCODE

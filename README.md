@@ -23,6 +23,9 @@ caz your-model-deployment
 You can run `caz` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
 
 If the terminal is wide enough, the model picker shows model costs in USD per million tokens.
+
+You can select the reasoning effort for the model if the values are set in the model CSV file. You can also specify effort directly: `caz your-model-deployment --reasoning-effort high`.
+
 2. A custom status line script that shows Copilot's  spend in Azure from the Copilot CLI. This is what it looks like:
 
 ![Status line screen](status-line-screenshot.jpg)
@@ -96,5 +99,13 @@ Finally, add pricing data to [foundry-model-pricing.csv](./azure-pricing-status-
 The script depends on you adding values to this file for whichever models you're using. It calculates the spend based on those numbers and the token usage data that Copilot CLI sends to the script. This allows the script to calculate spend without making any real API calls. A few rows exist already as an example.
 
 When getting your model's pricing data from that page, make sure you choose the correct region and pricing tier.
+
+The optional `base_model` column identifies the actual model behind an Azure deployment (for example, `gpt-5.4`). The launcher sets it as `COPILOT_PROVIDER_MODEL_ID` and keeps `model_key` as `COPILOT_PROVIDER_WIRE_MODEL`. Leave it blank to retain the deployment name as the internal model ID.
+
+The optional `reasoning_efforts` column is a pipe-separated list, such as `low|medium|high`. These should be the levels of reasoning effort than the model supports.
+
+The optional `default_reasoning_effort` column sets the default selected reasoning effort for the model. The value must be present in `reasoning_efforts`. Set it to the deployed model's documented default. When omitted, the picker starts at `medium` if available, and otherwise the first configured level.
+
+`node tests/byok-reasoning.cjs` verifies that the installed CLI sends `reasoning.effort` and the deployment name to a local mock Azure Responses endpoint, using a dummy key. It does not verify Azure accepts a particular model/effort combination.
 
 You can also give each row any number of aliases (separate each one with a pipe `|`) to match on if you called your model deployment something besides the model name.

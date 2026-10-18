@@ -38,16 +38,58 @@ input_prices=()
 output_prices=()
 cache_read_prices=()
 cache_write_prices=()
-name_width=0
+base_models=()
+effort_options=()
+effort_indexes=()
+model_labels=()
+name_width=14
 input_width=2
 output_width=3
 cache_read_width=10
 cache_write_width=11
 has_prices=false
-while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_write_per_1m output_per_1m || [[ -n "$model_key" ]]; do
+while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_write_per_1m output_per_1m base_model reasoning_efforts default_reasoning_effort || [[ -n "$model_key" ]]; do
   model_key="${model_key%$'\r'}"
   if [[ -n "$model_key" && "$model_key" != "model_key" ]]; then
     models+=("$model_key")
+    base_models+=("${base_model%$'\r'}")
+    reasoning_efforts="${reasoning_efforts%$'\r'}"
+    default_reasoning_effort="${default_reasoning_effort%$'\r'}"
+    options=''
+    effort_index=0
+    label="$model_key [N/A]"
+    if [[ -n "$reasoning_efforts" ]]; then
+      IFS='|' read -r -a levels <<< "$reasoning_efforts"
+      for level in "${levels[@]}"; do
+        case "$level" in
+          none) continue ;;
+          minimal|low|medium|high|xhigh|max) options+="${options:+|}$level" ;;
+          *) die "Invalid reasoning effort '$level' for '$model_key'." ;;
+        esac
+      done
+    fi
+    if [[ -n "$options" ]]; then
+      IFS='|' read -r -a levels <<< "$options"
+      starting_effort="${default_reasoning_effort:-medium}"
+      matched=false
+      for level_index in "${!levels[@]}"; do
+        if [[ "${levels[$level_index]}" == "$starting_effort" ]]; then
+          effort_index=$level_index
+          matched=true
+        fi
+        candidate_label="$model_key [${levels[$level_index]}]"
+        if (( ${#candidate_label} > name_width )); then name_width=${#candidate_label}; fi
+      done
+      if [[ -n "$default_reasoning_effort" && "$matched" == false ]]; then
+        die "Invalid default reasoning effort '$default_reasoning_effort' for '$model_key'."
+      fi
+      label="$model_key [${levels[$effort_index]}]"
+    elif [[ -n "$default_reasoning_effort" ]]; then
+      die "Invalid default reasoning effort '$default_reasoning_effort' for '$model_key'."
+    fi
+    effort_options+=("$options")
+    effort_indexes+=("$effort_index")
+    model_labels+=("$label")
     input_price=''
     output_price=''
     cache_read_price=''
@@ -64,7 +106,7 @@ while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_wri
     output_prices+=("$output_price")
     cache_read_prices+=("$cache_read_price")
     cache_write_prices+=("$cache_write_price")
-    if (( ${#model_key} > name_width )); then name_width=${#model_key}; fi
+    if (( ${#label} > name_width )); then name_width=${#label}; fi
     if (( ${#input_price} > input_width )); then input_width=${#input_price}; fi
     if (( ${#output_price} > output_width )); then output_width=${#output_price}; fi
     if (( ${#cache_read_price} > cache_read_width )); then cache_read_width=${#cache_read_price}; fi
@@ -82,10 +124,10 @@ if [[ $# -eq 0 ]]; then
   trap 'tput cnorm >&2 || true' EXIT
   trap 'exit 130' INT
   trap 'exit 143' TERM
-  printf '\nChoose a model (Up/Down, Enter; Esc to cancel):\n\n' >&2
+  printf '\nChoose a model (Up/Down; Left/Right effort; Enter; Esc to cancel):\n\n' >&2
   if [[ "$show_prices" == true ]]; then
     printf 'Costs are in USD and per 1M tokens\n' >&2
-    printf '   %-*s   %-*s   %-*s   %-*s   %s\n' "$name_width" 'model' "$input_width" 'in' "$output_width" 'out' "$cache_read_width" 'cache read' 'cache write' >&2
+    printf '   %-*s   %-*s   %-*s   %-*s   %s\n' "$name_width" 'model [effort]' "$input_width" 'in' "$output_width" 'out' "$cache_read_width" 'cache read' 'cache write' >&2
     printf -v divider '%*s' "$((name_width + input_width + output_width + cache_read_width + cache_write_width + 12))" ''
     printf '   %s\n' "${divider// /-}" >&2
   fi
@@ -95,13 +137,21 @@ if [[ $# -eq 0 ]]; then
       marker=' '
       [[ "$index" -eq "$current" ]] && marker='>'
       if [[ "$show_prices" == true ]]; then
-        printf ' %s %-*s   %-*s   %-*s   %-*s   %s\033[K\n' "$marker" "$name_width" "${models[$index]}" "$input_width" "${input_prices[$index]}" "$output_width" "${output_prices[$index]}" "$cache_read_width" "${cache_read_prices[$index]}" "${cache_write_prices[$index]}" >&2
+        printf ' %s %-*s   %-*s   %-*s   %-*s   %s\033[K\n' "$marker" "$name_width" "${model_labels[$index]}" "$input_width" "${input_prices[$index]}" "$output_width" "${output_prices[$index]}" "$cache_read_width" "${cache_read_prices[$index]}" "${cache_write_prices[$index]}" >&2
       else
-        printf ' %s %s\033[K\n' "$marker" "${models[$index]}" >&2
+        printf ' %s %s\033[K\n' "$marker" "${model_labels[$index]}" >&2
       fi
     done
   }
   draw_models
+  cycle_effort() {
+    IFS='|' read -r -a levels <<< "${effort_options[$current]}"
+    if (( ${#levels[@]} > 1 )); then
+      next=$(( (effort_indexes[current] + $1 + ${#levels[@]}) % ${#levels[@]} ))
+      effort_indexes[$current]=$next
+      model_labels[$current]="${models[$current]} [${levels[$next]}]"
+    fi
+  }
   while true; do
     IFS= read -rsn1 key || die "No model selected."
     if [[ "$key" == $'\e' ]]; then
@@ -112,6 +162,8 @@ if [[ $# -eq 0 ]]; then
           if (( current > 0 )); then current=$((current - 1)); fi ;;
         '[B'|'OB')
           if (( current < ${#models[@]} - 1 )); then current=$((current + 1)); fi ;;
+        '[C'|'OC') cycle_effort 1 ;;
+        '[D'|'OD') cycle_effort -1 ;;
         '') die "No model selected." ;;
       esac
     elif [[ -z "$key" || "$key" == $'\r' ]]; then
@@ -127,14 +179,21 @@ if [[ $# -eq 0 ]]; then
   tput cnorm >&2 || true
   trap - EXIT INT TERM
   deployment_name="${models[$current]}"
+  IFS='|' read -r -a levels <<< "${effort_options[$current]}"
+  selected_effort="${levels[${effort_indexes[$current]}]:-}"
+  if [[ -n "$selected_effort" ]]; then
+    set -- --reasoning-effort "$selected_effort"
+  fi
+  selected_index=$current
   printf 'Launching Copilot CLI...\n' >&2
 else
   deployment_name="$1"
   shift
   found=false
-  for model in "${models[@]}"; do
-    if [[ "$model" == "$deployment_name" ]]; then
+  for index in "${!models[@]}"; do
+    if [[ "${models[$index]}" == "$deployment_name" ]]; then
       found=true
+      selected_index=$index
       break
     fi
   done
@@ -171,5 +230,7 @@ export COPILOT_PROVIDER_BASE_URL="https://${AZURE_FOUNDRY_RESOURCE_NAME}.openai.
 export COPILOT_PROVIDER_API_KEY
 export COPILOT_PROVIDER_WIRE_API="responses"
 export COPILOT_MODEL="${deployment_name}"
+export COPILOT_PROVIDER_MODEL_ID="${base_models[$selected_index]:-$deployment_name}"
+export COPILOT_PROVIDER_WIRE_MODEL="$deployment_name"
 
 exec copilot "$@"

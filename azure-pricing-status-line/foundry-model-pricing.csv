@@ -1,4 +1,4 @@
-model_key,aliases,input_per_1m,cached_input_per_1m,cache_write_per_1m,output_per_1m
-gpt-5.6-sol,56sol|sol,5.00,0.50,6.25,30.00
-gpt-5.6-terra,56terra|terra,2.50,0.25,3.12,15.00
-gpt-5.6-luna,56luna|luna,1.00,0.10,1.25,6.00
+model_key,aliases,input_per_1m,cached_input_per_1m,cache_write_per_1m,output_per_1m,base_model,reasoning_efforts,default_reasoning_effort
+gpt-5.6-sol,56sol|sol,5.00,0.50,6.25,30.00,,,
+gpt-5.6-terra,56terra|terra,2.50,0.25,3.12,15.00,,,
+gpt-5.6-luna,56luna|luna,1.00,0.10,1.25,6.00,,,
