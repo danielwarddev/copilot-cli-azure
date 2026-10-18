@@ -62,8 +62,7 @@ while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_wri
       IFS='|' read -r -a levels <<< "$reasoning_efforts"
       for level in "${levels[@]}"; do
         case "$level" in
-          none) continue ;;
-          minimal|low|medium|high|xhigh|max) options+="${options:+|}$level" ;;
+          none|minimal|low|medium|high|xhigh|max) options+="${options:+|}$level" ;;
           *) die "Invalid reasoning effort '$level' for '$model_key'." ;;
         esac
       done

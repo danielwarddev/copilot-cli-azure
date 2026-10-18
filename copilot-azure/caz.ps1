@@ -48,7 +48,6 @@ $effortOptions = @($modelRows | ForEach-Object {
             }
         }
     }
-    $levels = @($levels | Where-Object { $_ -ne 'none' })
     $startingEffort = if ($_.default_reasoning_effort) { $_.default_reasoning_effort } else { 'medium' }
     $effortIndex = [Array]::IndexOf($levels, $startingEffort)
     if ($_.default_reasoning_effort -and $effortIndex -lt 0) {

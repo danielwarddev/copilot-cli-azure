@@ -13,8 +13,9 @@ const cases = [
   { name: 'right wraps', keys: [39, 39], effort: 'low' },
   { name: 'row memory', keys: [39, 40, 39, 38], effort: 'high' },
   { name: 'configured default', keys: [], effort: 'low', csv: csv.replace('reasoning_efforts\n', 'reasoning_efforts,default_reasoning_effort\n').replace('low|medium|high\n', 'low|medium|high,low\n') },
-  { name: 'none filtered', keys: [39, 39], effort: 'low', csv: csv.replace('low|medium|high', 'none|low|medium|high') },
-  { name: 'none only', keys: [39, 37], effort: null, csv: csv.replace('low|medium|high', 'none') },
+  { name: 'none selectable', keys: [39, 39], effort: 'none', csv: csv.replace('low|medium|high', 'none|low|medium|high') },
+  { name: 'none only', keys: [39, 37], effort: 'none', csv: csv.replace('low|medium|high', 'none') },
+  { name: 'none default', keys: [], effort: 'none', csv: csv.replace('reasoning_efforts\n', 'reasoning_efforts,default_reasoning_effort\n').replace('low|medium|high\n', 'none|low|medium|high,none\n') },
   { name: 'single effort', keys: [39, 37], effort: 'high', csv: csv.replace('low|medium|high', 'high') },
   { name: 'unsupported row', keys: [40, 39, 37], effort: null, model: 'plain' },
   { name: 'old CSV', keys: [39], effort: null, csv: `${header}\nreasoner,,1,0,0,2\n` },
@@ -68,7 +69,7 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
       assert.ok(output.includes(`HANDOFF model=${model} base=${base} wire=${model} args=${args}`), `${shell}: ${test.name}\n${output}`);
       if (test.effort && !test.args) assert.ok(output.includes(`[${test.effort}]`), `${shell}: visible effort`);
       if (!test.args) {
-        assert.ok(!output.includes('[default]') && !output.includes('[none]'), `${shell}: no placeholder efforts`);
+        assert.ok(!output.includes('[default]'), `${shell}: no placeholder efforts`);
         if (!test.effort) assert.ok(output.includes(`${model} [N/A]`), `${shell}: unavailable effort`);
         if (!test.width) assert.ok(output.includes('model [effort]'), `${shell}: column heading`);
       }

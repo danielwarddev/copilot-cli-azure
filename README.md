@@ -102,7 +102,7 @@ When getting your model's pricing data from that page, make sure you choose the 
 
 The optional `base_model` column identifies the actual model behind an Azure deployment (for example, `gpt-5.4`). The launcher sets it as `COPILOT_PROVIDER_MODEL_ID` and keeps `model_key` as `COPILOT_PROVIDER_WIRE_MODEL`. Leave it blank to retain the deployment name as the internal model ID.
 
-The optional `reasoning_efforts` column is a pipe-separated list, such as `low|medium|high`. These should be the levels of reasoning effort than the model supports.
+The optional `reasoning_efforts` column is a pipe-separated list, such as `none|low|medium|high`. Include only levels the model supports.
 
 The optional `default_reasoning_effort` column sets the default selected reasoning effort for the model. The value must be present in `reasoning_efforts`. Set it to the deployed model's documented default. When omitted, the picker starts at `medium` if available, and otherwise the first configured level.
 
