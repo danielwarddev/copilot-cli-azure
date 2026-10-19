@@ -20,7 +20,9 @@ After:
 caz your-model-deployment
 ```
 
-You can run `caz` two ways. Firstly, without arguments, to select a model from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
+You can run `caz` two ways. Firstly, without a model deployment name. This brings up a model picker that takes from the from the `model_key` column of the pricing CSV. Secondly, you can pass a deployment name directly, which must match a `model_key` in the CSV.
+
+You can pass Copilot CLI arguments to `caz` as normal, with or without a model deployment name. For instance,  `caz --resume=<session-id>` or `caz your-model-deployment --resume=<session-id>`.
 
 If the terminal is wide enough, the model picker shows model costs in USD per million tokens.
 

@@ -114,7 +114,7 @@ while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_wri
 done < "$pricing_file"
 [[ ${#models[@]} -gt 0 ]] || die "No models found in '$pricing_file'."
 
-if [[ $# -eq 0 ]]; then
+if [[ $# -eq 0 || "${1:-}" == -* ]]; then
   [[ -t 0 && -t 2 ]] || die "Model selection requires a terminal. Pass a model name directly instead."
   terminal_width=$(tput cols 2>/dev/null || printf '80')
   show_prices=false
@@ -180,8 +180,15 @@ if [[ $# -eq 0 ]]; then
   deployment_name="${models[$current]}"
   IFS='|' read -r -a levels <<< "${effort_options[$current]}"
   selected_effort="${levels[${effort_indexes[$current]}]:-}"
-  if [[ -n "$selected_effort" ]]; then
-    set -- --reasoning-effort "$selected_effort"
+  has_effort_arg=false
+  for argument in "$@"; do
+    if [[ "$argument" == --reasoning-effort || "$argument" == --reasoning-effort=* ]]; then
+      has_effort_arg=true
+      break
+    fi
+  done
+  if [[ -n "$selected_effort" && "$has_effort_arg" == false ]]; then
+    set -- --reasoning-effort "$selected_effort" "$@"
   fi
   selected_index=$current
   printf 'Launching Copilot CLI...\n' >&2

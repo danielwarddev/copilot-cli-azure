@@ -62,7 +62,7 @@ for ($index = 0; $index -lt $models.Count; $index++) {
     $modelLabels[$index] += " [$effort]"
 }
 
-if ($args.Count -eq 0) {
+if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
     if ([Console]::IsInputRedirected) {
         Write-Error 'Model selection requires a terminal. Pass a model name directly instead.'
         exit 1
@@ -138,9 +138,12 @@ if ($args.Count -eq 0) {
         }
     }
     $deploymentName = $models[$current]
-    $copilotArgs = @()
+    $copilotArgs = @($args)
     $option = $effortOptions[$current]
-    if ($option.Levels.Count) { $copilotArgs = @('--reasoning-effort', $option.Levels[$option.Index]) }
+    $hasEffortArg = @($copilotArgs | Where-Object { $_ -eq '--reasoning-effort' -or $_ -like '--reasoning-effort=*' }).Count -gt 0
+    if ($option.Levels.Count -and -not $hasEffortArg) {
+        $copilotArgs = @('--reasoning-effort', $option.Levels[$option.Index]) + $copilotArgs
+    }
     $selectedIndex = $current
     Write-Host 'Launching Copilot CLI...'
 }

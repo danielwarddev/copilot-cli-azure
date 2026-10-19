@@ -20,6 +20,11 @@ const cases = [
   { name: 'unsupported row', keys: [40, 39, 37], effort: null, model: 'plain' },
   { name: 'old CSV', keys: [39], effort: null, csv: `${header}\nreasoner,,1,0,0,2\n` },
   { name: 'direct args', keys: [], effort: 'high', args: ['reasoner', '--reasoning-effort', 'high'] },
+  { name: 'picker resume', keys: [], effort: 'medium', args: ['--resume=test-session'], handoffArgs: ['--reasoning-effort', 'medium', '--resume=test-session'] },
+  { name: 'picker quoted args', keys: [], effort: 'medium', args: ['--resume', 'session with spaces'], handoffArgs: ['--reasoning-effort', 'medium', '--resume', 'session with spaces'] },
+  { name: 'picker plain resume', keys: [40], effort: null, model: 'plain', args: ['--resume=test-session'], handoffArgs: ['--resume=test-session'] },
+  { name: 'picker explicit effort', keys: [], effort: 'high', args: ['--resume=test-session', '--reasoning-effort', 'high'], handoffArgs: ['--resume=test-session', '--reasoning-effort', 'high'] },
+  { name: 'picker equals effort', keys: [], effort: 'high', args: ['--reasoning-effort=high'], handoffArgs: ['--reasoning-effort=high'] },
   { name: 'invalid metadata', keys: [], invalid: true, csv: csv.replace('low|medium|high', 'bogus') },
   { name: 'invalid default', keys: [], invalid: true, csv: csv.replace('reasoning_efforts\n', 'reasoning_efforts,default_reasoning_effort\n').replace('low|medium|high\n', 'low|medium|high,max\n') }
 ];
@@ -65,8 +70,9 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
       const model = test.model ?? 'reasoner';
       const selectedRow = fixture.trim().split('\n').slice(1).find(row => row.split(',')[0] === model).split(',');
       const base = selectedRow[6] || model;
-      const args = test.effort ? `--reasoning-effort ${test.effort}` : '';
-      assert.ok(output.includes(`HANDOFF model=${model} base=${base} wire=${model} args=${args}`), `${shell}: ${test.name}\n${output}`);
+      const args = test.handoffArgs ? test.handoffArgs.join(' ') : test.effort ? `--reasoning-effort ${test.effort}` : '';
+      const handoff = output.split(/\r?\n/).find(line => line.startsWith('HANDOFF '));
+      assert.equal(handoff, `HANDOFF model=${model} base=${base} wire=${model} args=${args}`, `${shell}: ${test.name}\n${output}`);
       if (test.effort && !test.args) assert.ok(output.includes(`[${test.effort}]`), `${shell}: visible effort`);
       if (!test.args) {
         assert.ok(!output.includes('[default]'), `${shell}: no placeholder efforts`);
