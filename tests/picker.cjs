@@ -73,11 +73,17 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
       const args = test.handoffArgs ? test.handoffArgs.join(' ') : test.effort ? `--reasoning-effort ${test.effort}` : '';
       const handoff = output.split(/\r?\n/).find(line => line.startsWith('HANDOFF '));
       assert.equal(handoff, `HANDOFF model=${model} base=${base} wire=${model} args=${args}`, `${shell}: ${test.name}\n${output}`);
-      if (test.effort && !test.args) assert.ok(output.includes(`[${test.effort}]`), `${shell}: visible effort`);
+      if (test.effort && !test.args) assert.ok(output.includes(`(${test.effort})`), `${shell}: visible effort`);
+      const usesPicker = !test.args?.length || test.args[0].startsWith('-');
+      if (usesPicker) {
+        const normalizedOutput = output.replaceAll('\r\n', '\n').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
+        assert.ok(normalizedOutput.includes(`\n\nLaunching Copilot CLI with ${model} (${test.effort ?? 'N/A'})...\n`), `${shell}: launch message and preceding blank line\n${output}`);
+        assert.ok(!/\[(?:low|medium|high|none|N\/A|effort)\]/.test(output), `${shell}: no square-bracket effort labels`);
+      }
       if (!test.args) {
         assert.ok(!output.includes('[default]'), `${shell}: no placeholder efforts`);
-        if (!test.effort) assert.ok(output.includes(`${model} [N/A]`), `${shell}: unavailable effort`);
-        if (!test.width) assert.ok(output.includes('model [effort]'), `${shell}: column heading`);
+        if (!test.effort) assert.ok(output.includes(`${model} (N/A)`), `${shell}: unavailable effort`);
+        if (!test.width) assert.ok(output.includes('model (effort)'), `${shell}: column heading`);
       }
       if (test.width) assert.ok(!output.includes('Costs are in USD'), `${shell}: hidden prices`);
     }

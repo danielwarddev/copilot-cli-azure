@@ -59,7 +59,7 @@ $modelLabels = @($models)
 for ($index = 0; $index -lt $models.Count; $index++) {
     $option = $effortOptions[$index]
     $effort = if ($option.Levels.Count) { $option.Levels[$option.Index] } else { 'N/A' }
-    $modelLabels[$index] += " [$effort]"
+    $modelLabels[$index] += " ($effort)"
 }
 
 if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
@@ -78,7 +78,7 @@ if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
     })
     $allLabels = @($modelLabels)
     for ($index = 0; $index -lt $models.Count; $index++) {
-        foreach ($level in $effortOptions[$index].Levels) { $allLabels += "$($models[$index]) [$level]" }
+        foreach ($level in $effortOptions[$index].Levels) { $allLabels += "$($models[$index]) ($level)" }
     }
     $nameWidth = [Math]::Max(14, ($allLabels | Measure-Object -Property Length -Maximum).Maximum)
     $inputWidth = [Math]::Max(2, ($priceRows | ForEach-Object { $_.Input.Length } | Measure-Object -Maximum).Maximum)
@@ -92,7 +92,7 @@ if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
     Write-Host
     if ($showPrices) {
         Write-Host 'Costs are in USD and per 1M tokens'
-        Write-Host ('   {0}   {1}   {2}   {3}   {4}' -f 'model [effort]'.PadRight($nameWidth), 'in'.PadRight($inputWidth), 'out'.PadRight($outputWidth), 'cache read'.PadRight($cacheReadWidth), 'cache write')
+        Write-Host ('   {0}   {1}   {2}   {3}   {4}' -f 'model (effort)'.PadRight($nameWidth), 'in'.PadRight($inputWidth), 'out'.PadRight($outputWidth), 'cache read'.PadRight($cacheReadWidth), 'cache write')
         Write-Host ('   ' + ('-' * ($nameWidth + $inputWidth + $outputWidth + $cacheReadWidth + $cacheWriteWidth + 12)))
     }
     $current = 0
@@ -123,7 +123,7 @@ if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
             if ($option.Levels.Count -le 1) { continue }
             $direction = if ($key.VirtualKeyCode -eq 39) { 1 } else { -1 }
             $option.Index = ($option.Index + $direction + $option.Levels.Count) % $option.Levels.Count
-            $modelLabels[$current] = '{0} [{1}]' -f $models[$current], $option.Levels[$option.Index]
+            $modelLabels[$current] = '{0} ({1})' -f $models[$current], $option.Levels[$option.Index]
         }
         else { continue }
 
@@ -145,7 +145,19 @@ if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
         $copilotArgs = @('--reasoning-effort', $option.Levels[$option.Index]) + $copilotArgs
     }
     $selectedIndex = $current
-    Write-Host 'Launching Copilot CLI...'
+    $selectedEffort = if ($option.Levels.Count) { $option.Levels[$option.Index] } else { 'N/A' }
+    for ($index = 0; $index -lt $copilotArgs.Count; $index++) {
+        if ($copilotArgs[$index] -eq '--reasoning-effort' -and $index + 1 -lt $copilotArgs.Count) {
+            $selectedEffort = $copilotArgs[$index + 1]
+            break
+        }
+        if ($copilotArgs[$index] -like '--reasoning-effort=*') {
+            $selectedEffort = $copilotArgs[$index].Substring('--reasoning-effort='.Length)
+            break
+        }
+    }
+    Write-Host
+    Write-Host "Launching Copilot CLI with $deploymentName ($selectedEffort)..."
 }
 else {
     $deploymentName = $args[0]
