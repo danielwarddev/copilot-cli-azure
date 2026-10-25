@@ -120,47 +120,117 @@ function Get-Pricing($modelId, $modelDisplayName) {
     return $null
 }
 
-function Update-SessionUsage($sessionId, $currentUsage) {
+function Get-TranscriptEventsPath([string]$transcriptPath) {
+    # Copilot passes the session-state directory as transcript_path; its events.jsonl holds the event log.
+    if ([string]::IsNullOrWhiteSpace($transcriptPath)) {
+        return $null
+    }
+
+    $eventsPath = if (Test-Path -LiteralPath $transcriptPath -PathType Container) { Join-Path $transcriptPath 'events.jsonl' } else { $transcriptPath }
+    if (Test-Path -LiteralPath $eventsPath -PathType Leaf) {
+        return $eventsPath
+    }
+
+    return $null
+}
+
+function Find-NewUserPrompt([string]$eventsPath, [long]$offset) {
+    # Scan only the bytes appended since the last refresh, stopping at the last complete line.
+    $stream = [System.IO.File]::Open($eventsPath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read, [System.IO.FileShare]::ReadWrite -bor [System.IO.FileShare]::Delete)
+    try {
+        if ($offset -lt 0 -or $offset -gt $stream.Length) {
+            $offset = 0
+        }
+
+        $remaining = [int]($stream.Length - $offset)
+        $buffer = [byte[]]::new($remaining)
+        [void]$stream.Seek($offset, [System.IO.SeekOrigin]::Begin)
+        $read = 0
+        while ($read -lt $remaining) {
+            $count = $stream.Read($buffer, $read, $remaining - $read)
+            if ($count -le 0) {
+                break
+            }
+            $read += $count
+        }
+    }
+    finally {
+        $stream.Dispose()
+    }
+
+    if ($read -eq 0) {
+        return [pscustomobject]@{ has_new_prompt = $false; offset = $offset }
+    }
+
+    $lastNewline = [Array]::LastIndexOf($buffer, [byte]10, $read - 1)
+    if ($lastNewline -lt 0) {
+        return [pscustomobject]@{ has_new_prompt = $false; offset = $offset }
+    }
+
+    $text = [System.Text.Encoding]::UTF8.GetString($buffer, 0, $lastNewline + 1)
+    return [pscustomobject]@{
+        has_new_prompt = $text -match '(?m)^\{"type":"user\.message"'
+        offset = $offset + $lastNewline + 1
+    }
+}
+
+function Update-SessionUsage($sessionId, $currentUsage, $transcriptPath) {
     $safeSessionId = if ([string]::IsNullOrWhiteSpace($sessionId)) { 'unknown' } else { $sessionId -replace '[^A-Za-z0-9_.-]', '_' }
     $stateDir = Join-Path $PSScriptRoot 'cost-state'
     New-Item -ItemType Directory -Path $stateDir -Force | Out-Null
     $statePath = Join-Path $stateDir "statusline-cost-state-$safeSessionId.json"
     $previousState = Read-JsonFile $statePath
+    if ($null -ne $previousState -and $previousState.session_id -ne $sessionId) {
+        $previousState = $null
+    }
 
-    $previousUsage = if ($null -ne $previousState -and $previousState.session_id -eq $sessionId) { $previousState.last_cumulative_usage } else { $null }
-    $promptUsage = $null
-    $isNewPrompt = $false
+    $emptyUsage = New-UsageSnapshot $null
+    $previousUsage = if ($null -ne $previousState -and $null -ne $previousState.last_cumulative_usage) { New-UsageSnapshot $previousState.last_cumulative_usage } else { $null }
+    $refreshUsage = if ($null -ne $previousUsage) { Get-UsageDelta $currentUsage $previousUsage } else { $currentUsage }
+    $promptStartUsage = $null
+    $transcriptOffset = $null
 
-    if ($null -ne $previousUsage) {
-        if (Test-UsageEqual $currentUsage $previousUsage) {
-            # Preserve the previous prompt cost across statusline refreshes with unchanged cumulative usage.
-            $promptUsage = $previousState.last_prompt_usage
-            if ($null -eq $promptUsage -and (Test-UsageHasTokens $currentUsage)) {
-                $promptUsage = $currentUsage
-                $isNewPrompt = $true
-            }
+    $eventsPath = Get-TranscriptEventsPath $transcriptPath
+    if ($null -ne $eventsPath) {
+        # A single prompt can trigger many model calls (and statusline refreshes), so prompt
+        # boundaries come from user.message events in the transcript, not from usage changes.
+        $previousOffset = if ($null -ne $previousState -and $null -ne $previousState.transcript_offset) { [long]$previousState.transcript_offset } else { 0 }
+        $scan = Find-NewUserPrompt $eventsPath $previousOffset
+        $transcriptOffset = $scan.offset
+
+        if ($scan.has_new_prompt) {
+            $promptStartUsage = if ($null -ne $previousUsage) { $previousUsage } else { $emptyUsage }
+        }
+        elseif ($null -ne $previousState -and $null -ne $previousState.prompt_start_usage) {
+            $promptStartUsage = New-UsageSnapshot $previousState.prompt_start_usage
         }
         else {
-            $promptUsage = Get-UsageDelta $currentUsage $previousUsage
-            $isNewPrompt = $true
+            $promptStartUsage = if ($null -ne $previousUsage) { $previousUsage } else { $emptyUsage }
         }
+
+        $promptUsage = Get-UsageDelta $currentUsage $promptStartUsage
+    }
+    elseif ($null -ne $previousUsage -and (Test-UsageEqual $currentUsage $previousUsage)) {
+        # Without a transcript, fall back to treating each usage change as a prompt.
+        $promptUsage = $previousState.last_prompt_usage
     }
     else {
-        $promptUsage = $currentUsage
-        $isNewPrompt = Test-UsageHasTokens $currentUsage
+        $promptUsage = $refreshUsage
     }
 
     $state = [pscustomobject]@{
         session_id = $sessionId
         last_cumulative_usage = $currentUsage
         last_prompt_usage = $promptUsage
+        prompt_start_usage = $promptStartUsage
+        transcript_offset = $transcriptOffset
         updated_at = [DateTimeOffset]::UtcNow.ToString('o')
     }
     Write-JsonFile $statePath $state 5
 
     return [pscustomobject]@{
         prompt_usage = $promptUsage
-        is_new_prompt = $isNewPrompt
+        refresh_usage = $refreshUsage
     }
 }
 
@@ -169,7 +239,7 @@ function Format-PricingText([double]$previousCost, [double]$sessionCost, [double
     return "$esc[36m$('(Azure) Last prompt: ${0:N2} | Session: ${1:N2} | Today: ${2:N2}' -f $previousCost, $sessionCost, $todayCost)$esc[0m"
 }
 
-function Get-DailyCost([double]$promptCost, [bool]$shouldIncrement) {
+function Get-DailyCost([double]$additionalCost, [bool]$shouldIncrement) {
     $dailyDir = Join-Path $PSScriptRoot 'daily-cost'
     New-Item -ItemType Directory -Path $dailyDir -Force | Out-Null
 
@@ -183,7 +253,7 @@ function Get-DailyCost([double]$promptCost, [bool]$shouldIncrement) {
     }
 
     if ($shouldIncrement) {
-        $dailyTotal += $promptCost
+        $dailyTotal += $additionalCost
         $state = [pscustomobject]@{
             date = $today
             estimated_total_usd = $dailyTotal
@@ -221,10 +291,11 @@ function Invoke-StatusLine {
     }
 
     $sessionUsage = New-UsageSnapshot $usage
-    $usageUpdate = Update-SessionUsage $status.session_id $sessionUsage
+    $usageUpdate = Update-SessionUsage $status.session_id $sessionUsage $status.transcript_path
     $lastPromptCost = if ($null -ne $usageUpdate.prompt_usage) { Get-Cost $usageUpdate.prompt_usage $pricing } else { 0.0 }
     $sessionCost = Get-Cost $sessionUsage $pricing
-    $todayCost = Get-DailyCost $lastPromptCost $usageUpdate.is_new_prompt
+    $refreshCost = Get-Cost $usageUpdate.refresh_usage $pricing
+    $todayCost = Get-DailyCost $refreshCost (Test-UsageHasTokens $usageUpdate.refresh_usage)
     Format-PricingText $lastPromptCost $sessionCost $todayCost
 }
 

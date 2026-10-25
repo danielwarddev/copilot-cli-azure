@@ -142,49 +142,107 @@ function findPricing(status) {
   }) ?? null;
 }
 
-function updateSessionUsage(sessionId, currentUsage) {
+function getTranscriptEventsPath(transcriptPath) {
+  // Copilot passes the session-state directory as transcript_path; its events.jsonl holds the event log.
+  if (!transcriptPath) {
+    return null;
+  }
+  try {
+    const eventsPath = fs.statSync(transcriptPath).isDirectory() ? path.join(transcriptPath, 'events.jsonl') : transcriptPath;
+    return fs.statSync(eventsPath).isFile() ? eventsPath : null;
+  } catch {
+    return null;
+  }
+}
+
+function findNewUserPrompt(eventsPath, offset) {
+  // Scan only the bytes appended since the last refresh, stopping at the last complete line.
+  const fd = fs.openSync(eventsPath, 'r');
+  try {
+    const size = fs.fstatSync(fd).size;
+    const start = offset >= 0 && offset <= size ? offset : 0;
+    const buffer = Buffer.alloc(size - start);
+    let read = 0;
+    while (read < buffer.length) {
+      const count = fs.readSync(fd, buffer, read, buffer.length - read, start + read);
+      if (count <= 0) {
+        break;
+      }
+      read += count;
+    }
+
+    const lastNewline = buffer.lastIndexOf(10, read - 1);
+    if (read === 0 || lastNewline < 0) {
+      return { hasNewPrompt: false, offset: start };
+    }
+
+    const text = buffer.toString('utf8', 0, lastNewline + 1);
+    return {
+      hasNewPrompt: /^\{"type":"user\.message"/m.test(text),
+      offset: start + lastNewline + 1,
+    };
+  } finally {
+    fs.closeSync(fd);
+  }
+}
+
+function updateSessionUsage(sessionId, currentUsage, transcriptPath) {
   const safeSessionId = (sessionId || 'unknown').replace(/[^A-Za-z0-9_.-]/g, '_');
   const stateDir = path.join(scriptDir, 'cost-state');
   fs.mkdirSync(stateDir, { recursive: true });
   const statePath = path.join(stateDir, `statusline-cost-state-${safeSessionId}.json`);
-  const previousState = readJsonFile(statePath);
+  let previousState = readJsonFile(statePath);
+  if (previousState?.session_id !== sessionId) {
+    previousState = null;
+  }
 
-  const previousUsage = previousState?.session_id === sessionId ? previousState.last_cumulative_usage : null;
-  let promptUsage = null;
-  let isNewPrompt = false;
+  const emptyUsage = createUsageSnapshot(null);
+  const previousUsage = previousState?.last_cumulative_usage ? createUsageSnapshot(previousState.last_cumulative_usage) : null;
+  const refreshUsage = previousUsage ? calculateUsageDelta(currentUsage, previousUsage) : currentUsage;
+  let promptUsage;
+  let promptStartUsage = null;
+  let transcriptOffset = null;
 
-  if (previousUsage) {
-    if (isSameUsage(currentUsage, previousUsage)) {
-      // Preserve the previous prompt cost across statusline refreshes with unchanged cumulative usage.
-      promptUsage = previousState.last_prompt_usage;
-      if (!promptUsage && hasUsage(currentUsage)) {
-        promptUsage = currentUsage;
-        isNewPrompt = true;
-      }
+  const eventsPath = getTranscriptEventsPath(transcriptPath);
+  if (eventsPath) {
+    // A single prompt can trigger many model calls (and statusline refreshes), so prompt
+    // boundaries come from user.message events in the transcript, not from usage changes.
+    const scan = findNewUserPrompt(eventsPath, getNumber(previousState?.transcript_offset));
+    transcriptOffset = scan.offset;
+
+    if (scan.hasNewPrompt) {
+      promptStartUsage = previousUsage ?? emptyUsage;
+    } else if (previousState?.prompt_start_usage) {
+      promptStartUsage = createUsageSnapshot(previousState.prompt_start_usage);
     } else {
-      promptUsage = calculateUsageDelta(currentUsage, previousUsage);
-      isNewPrompt = true;
+      promptStartUsage = previousUsage ?? emptyUsage;
     }
+
+    promptUsage = calculateUsageDelta(currentUsage, promptStartUsage);
+  } else if (previousUsage && isSameUsage(currentUsage, previousUsage)) {
+    // Without a transcript, fall back to treating each usage change as a prompt.
+    promptUsage = previousState.last_prompt_usage;
   } else {
-    promptUsage = currentUsage;
-    isNewPrompt = hasUsage(currentUsage);
+    promptUsage = refreshUsage;
   }
 
   writeJsonFile(statePath, {
     session_id: sessionId,
     last_cumulative_usage: currentUsage,
     last_prompt_usage: promptUsage,
+    prompt_start_usage: promptStartUsage,
+    transcript_offset: transcriptOffset,
     updated_at: new Date().toISOString(),
   });
 
-  return { promptUsage, isNewPrompt };
+  return { promptUsage, refreshUsage };
 }
 
 function formatPricingText(previousCost, sessionCost, todayCost) {
   return `\x1b[36m(Azure) Last prompt: $${previousCost.toFixed(2)} | Session: $${sessionCost.toFixed(2)} | Today: $${todayCost.toFixed(2)}\x1b[0m`;
 }
 
-function getDailyCost(promptCost, shouldIncrement) {
+function getDailyCost(additionalCost, shouldIncrement) {
   const dailyDir = path.join(scriptDir, 'daily-cost');
   fs.mkdirSync(dailyDir, { recursive: true });
 
@@ -199,7 +257,7 @@ function getDailyCost(promptCost, shouldIncrement) {
   }
 
   if (shouldIncrement) {
-    dailyTotal += promptCost;
+    dailyTotal += additionalCost;
     writeJsonFile(dailyPath, {
       date: today,
       estimated_total_usd: dailyTotal,
@@ -235,10 +293,11 @@ function main() {
   }
 
   const sessionUsage = createUsageSnapshot(usage);
-  const usageUpdate = updateSessionUsage(status.session_id, sessionUsage);
+  const usageUpdate = updateSessionUsage(status.session_id, sessionUsage, status.transcript_path);
   const lastPromptCost = usageUpdate.promptUsage ? calculateCost(usageUpdate.promptUsage, pricing) : 0;
   const sessionCost = calculateCost(sessionUsage, pricing);
-  const todayCost = getDailyCost(lastPromptCost, usageUpdate.isNewPrompt);
+  const refreshCost = calculateCost(usageUpdate.refreshUsage, pricing);
+  const todayCost = getDailyCost(refreshCost, hasUsage(usageUpdate.refreshUsage));
   console.log(formatPricingText(lastPromptCost, sessionCost, todayCost));
 }
 
