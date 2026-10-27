@@ -38,7 +38,7 @@ for (const shell of ['bash', 'powershell']) {
         .replace(/done < "\$pricing_file"/, `done < <(printf '%s' ${quote(fixture)})`)
         .replace(/^[ \t]*\[\[ -t 0 && -t 2 \]\].*$/m, '  :')
         .replace(/^[ \t]*terminal_width=.*$/m, `  terminal_width=${test.width ?? 120}`)
-        .replace(/^exec copilot .*$/m, 'printf "HANDOFF model=%s base=%s wire=%s args=%s\\n" "$COPILOT_MODEL" "$COPILOT_PROVIDER_MODEL_ID" "$COPILOT_PROVIDER_WIRE_MODEL" "$*"');
+        .replace(/^copilot "\$@" \|\| copilot_status=\$\?$/m, 'printf "HANDOFF model=%s base=%s wire=%s args=%s\\n" "$COPILOT_MODEL" "$COPILOT_PROVIDER_MODEL_ID" "$COPILOT_PROVIDER_WIRE_MODEL" "$*"');
       const sequences = { 37: '\x1b[D', 38: '\x1b[A', 39: '\x1b[C', 40: '\x1b[B' };
       result = spawnSync('bash', ['-c', 'eval "$PICKER_TEST_SOURCE"', 'caz', ...(test.args ?? [])], {
         input: test.keys.map(key => sequences[key]).join('') + '\r',
@@ -72,7 +72,8 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
       const base = selectedRow[6] || model;
       const args = test.handoffArgs ? test.handoffArgs.join(' ') : test.effort ? `--reasoning-effort ${test.effort}` : '';
       const handoff = output.split(/\r?\n/).find(line => line.startsWith('HANDOFF '));
-      assert.equal(handoff, `HANDOFF model=${model} base=${base} wire=${model} args=${args}`, `${shell}: ${test.name}\n${output}`);
+      assert.ok(output.replaceAll('\r\n', '\n').includes('\n\nTo resume with caz, run caz=session-id\n'), `${shell}: caz resume hint\n${output}`);
+      assert.equal(handoff,   `HANDOFF model=${model} base=${base} wire=${model} args=${args}`, `${shell}: ${test.name}\n${output}`);
       if (test.effort && !test.args) assert.ok(output.includes(`(${test.effort})`), `${shell}: visible effort`);
       const usesPicker = !test.args?.length || test.args[0].startsWith('-');
       if (usesPicker) {

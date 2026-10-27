@@ -197,4 +197,8 @@ $env:COPILOT_PROVIDER_MODEL_ID = if ($baseModel) { $baseModel.Trim() } else { $d
 $env:COPILOT_PROVIDER_WIRE_MODEL = $deploymentName
 
 & copilot @copilotArgs
-exit $LASTEXITCODE
+$copilotExitCode = $LASTEXITCODE
+
+Write-Host
+Write-Host 'To resume with caz, run caz=session-id'
+exit $copilotExitCode

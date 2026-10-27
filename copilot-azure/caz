@@ -245,4 +245,8 @@ export COPILOT_MODEL="${deployment_name}"
 export COPILOT_PROVIDER_MODEL_ID="${base_models[$selected_index]:-$deployment_name}"
 export COPILOT_PROVIDER_WIRE_MODEL="$deployment_name"
 
-exec copilot "$@"
+copilot_status=0
+copilot "$@" || copilot_status=$?
+
+printf '\nTo resume with caz, run caz=session-id\n' >&2
+exit "$copilot_status"
