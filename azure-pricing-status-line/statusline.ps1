@@ -234,9 +234,9 @@ function Update-SessionUsage($sessionId, $currentUsage, $transcriptPath) {
     }
 }
 
-function Format-PricingText([double]$previousCost, [double]$sessionCost, [double]$todayCost) {
+function Format-PricingText([double]$previousCost, [double]$sessionCost, [double]$todayCost, [double]$monthCost) {
     $esc = [char]27
-    return "$esc[36m$('(Azure) Last prompt: ${0:N2} | Session: ${1:N2} | Today: ${2:N2}' -f $previousCost, $sessionCost, $todayCost)$esc[0m"
+    return "$esc[36m$('(Azure) Last prompt: ${0:N2} | Session: ${1:N2} | Today: ${2:N2} | Month: ${3:N2}' -f $previousCost, $sessionCost, $todayCost, $monthCost)$esc[0m"
 }
 
 function Get-DailyCost([double]$additionalCost, [bool]$shouldIncrement) {
@@ -265,6 +265,32 @@ function Get-DailyCost([double]$additionalCost, [bool]$shouldIncrement) {
     return $dailyTotal
 }
 
+function Get-MonthlyCost([double]$additionalCost, [bool]$shouldIncrement) {
+    $monthlyDir = Join-Path $PSScriptRoot 'monthly-cost'
+    New-Item -ItemType Directory -Path $monthlyDir -Force | Out-Null
+
+    $month = Get-Date -Format 'yyyy-MM'
+    $monthlyPath = Join-Path $monthlyDir "$month.json"
+    $monthlyTotal = 0.0
+
+    $monthlyState = Read-JsonFile $monthlyPath
+    if ($null -ne $monthlyState -and $null -ne $monthlyState.estimated_total_usd) {
+        $monthlyTotal = [double]$monthlyState.estimated_total_usd
+    }
+
+    if ($shouldIncrement) {
+        $monthlyTotal += $additionalCost
+        $state = [pscustomobject]@{
+            month = $month
+            estimated_total_usd = $monthlyTotal
+            updated_at = [DateTimeOffset]::Now.ToString('o')
+        }
+        Write-JsonFile $monthlyPath $state 3
+    }
+
+    return $monthlyTotal
+}
+
 function Invoke-StatusLine {
     $jsonText = [Console]::In.ReadToEnd()
 
@@ -280,7 +306,7 @@ function Invoke-StatusLine {
 
     $usage = $status.context_window.current_usage
     if ($null -eq $usage) {
-        Format-PricingText 0.0 0.0 (Get-DailyCost 0.0 $false)
+        Format-PricingText 0.0 0.0 (Get-DailyCost 0.0 $false) (Get-MonthlyCost 0.0 $false)
         exit 0
     }
 
@@ -296,7 +322,8 @@ function Invoke-StatusLine {
     $sessionCost = Get-Cost $sessionUsage $pricing
     $refreshCost = Get-Cost $usageUpdate.refresh_usage $pricing
     $todayCost = Get-DailyCost $refreshCost (Test-UsageHasTokens $usageUpdate.refresh_usage)
-    Format-PricingText $lastPromptCost $sessionCost $todayCost
+    $monthCost = Get-MonthlyCost $refreshCost (Test-UsageHasTokens $usageUpdate.refresh_usage)
+    Format-PricingText $lastPromptCost $sessionCost $todayCost $monthCost
 }
 
 try {

@@ -238,8 +238,8 @@ function updateSessionUsage(sessionId, currentUsage, transcriptPath) {
   return { promptUsage, refreshUsage };
 }
 
-function formatPricingText(previousCost, sessionCost, todayCost) {
-  return `\x1b[36m(Azure) Last prompt: $${previousCost.toFixed(2)} | Session: $${sessionCost.toFixed(2)} | Today: $${todayCost.toFixed(2)}\x1b[0m`;
+function formatPricingText(previousCost, sessionCost, todayCost, monthCost) {
+  return `\x1b[36m(Azure) Last prompt: $${previousCost.toFixed(2)} | Session: $${sessionCost.toFixed(2)} | Today: $${todayCost.toFixed(2)} | Month: $${monthCost.toFixed(2)}\x1b[0m`;
 }
 
 function getDailyCost(additionalCost, shouldIncrement) {
@@ -268,6 +268,32 @@ function getDailyCost(additionalCost, shouldIncrement) {
   return dailyTotal;
 }
 
+function getMonthlyCost(additionalCost, shouldIncrement) {
+  const monthlyDir = path.join(scriptDir, 'monthly-cost');
+  fs.mkdirSync(monthlyDir, { recursive: true });
+
+  const now = new Date();
+  const month = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const monthlyPath = path.join(monthlyDir, `${month}.json`);
+  let monthlyTotal = 0;
+
+  const monthlyState = readJsonFile(monthlyPath);
+  if (monthlyState) {
+    monthlyTotal = getNumber(monthlyState.estimated_total_usd);
+  }
+
+  if (shouldIncrement) {
+    monthlyTotal += additionalCost;
+    writeJsonFile(monthlyPath, {
+      month,
+      estimated_total_usd: monthlyTotal,
+      updated_at: new Date().toISOString(),
+    });
+  }
+
+  return monthlyTotal;
+}
+
 function main() {
   const jsonText = process.env.JSON_INPUT ?? '';
   if (!jsonText.trim()) {
@@ -282,7 +308,7 @@ function main() {
 
   const usage = status.context_window?.current_usage;
   if (!usage) {
-    console.log(formatPricingText(0, 0, getDailyCost(0, false)));
+    console.log(formatPricingText(0, 0, getDailyCost(0, false), getMonthlyCost(0, false)));
     return;
   }
 
@@ -298,7 +324,8 @@ function main() {
   const sessionCost = calculateCost(sessionUsage, pricing);
   const refreshCost = calculateCost(usageUpdate.refreshUsage, pricing);
   const todayCost = getDailyCost(refreshCost, hasUsage(usageUpdate.refreshUsage));
-  console.log(formatPricingText(lastPromptCost, sessionCost, todayCost));
+  const monthCost = getMonthlyCost(refreshCost, hasUsage(usageUpdate.refreshUsage));
+  console.log(formatPricingText(lastPromptCost, sessionCost, todayCost, monthCost));
 }
 
 try {
