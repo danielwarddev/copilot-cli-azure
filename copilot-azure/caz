@@ -114,6 +114,7 @@ while IFS=, read -r model_key aliases input_per_1m cached_input_per_1m cache_wri
 done < "$pricing_file"
 [[ ${#models[@]} -gt 0 ]] || die "No models found in '$pricing_file'."
 
+show_launch_message=false
 if [[ $# -eq 0 || "${1:-}" == -* ]]; then
   [[ -t 0 && -t 2 ]] || die "Model selection requires a terminal. Pass a model name directly instead."
   terminal_width=$(tput cols 2>/dev/null || printf '80')
@@ -197,7 +198,7 @@ if [[ $# -eq 0 || "${1:-}" == -* ]]; then
     set -- --reasoning-effort "$selected_effort" "$@"
   fi
   selected_index=$current
-  printf '\nLaunching Copilot CLI with %s (%s)...\n' "$deployment_name" "${selected_effort:-N/A}" >&2
+  show_launch_message=true
 else
   deployment_name="$1"
   shift
@@ -228,6 +229,7 @@ resolve_api_key() {
     die "Azure CLI ('az') not found. Install it, or set COPILOT_PROVIDER_API_KEY."
   fi
 
+  printf '\nAuthenticating to Azure with az... If this takes more than a few seconds, you probably need to authenticate with az login.\n' >&2
   COPILOT_PROVIDER_API_KEY="$(fetch_api_key_from_azure)"
 
   if [[ -z "$COPILOT_PROVIDER_API_KEY" ]]; then
@@ -244,6 +246,10 @@ export COPILOT_PROVIDER_WIRE_API="responses"
 export COPILOT_MODEL="${deployment_name}"
 export COPILOT_PROVIDER_MODEL_ID="${base_models[$selected_index]:-$deployment_name}"
 export COPILOT_PROVIDER_WIRE_MODEL="$deployment_name"
+
+if [[ "$show_launch_message" == true ]]; then
+  printf '\nLaunching Copilot CLI with %s (%s)...\n' "$deployment_name" "${selected_effort:-N/A}" >&2
+fi
 
 copilot_status=0
 copilot "$@" || copilot_status=$?

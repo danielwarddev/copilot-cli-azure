@@ -62,6 +62,7 @@ for ($index = 0; $index -lt $models.Count; $index++) {
     $modelLabels[$index] += " ($effort)"
 }
 
+$showLaunchMessage = $false
 if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
     if ([Console]::IsInputRedirected) {
         Write-Error 'Model selection requires a terminal. Pass a model name directly instead.'
@@ -156,8 +157,7 @@ if ($args.Count -eq 0 -or $args[0].StartsWith('-')) {
             break
         }
     }
-    Write-Host
-    Write-Host "Launching Copilot CLI with $deploymentName ($selectedEffort)..."
+    $showLaunchMessage = $true
 }
 else {
     $deploymentName = $args[0]
@@ -175,6 +175,8 @@ if ([string]::IsNullOrWhiteSpace($env:COPILOT_PROVIDER_API_KEY)) {
         exit 1
     }
 
+    Write-Host
+    Write-Host 'Authenticating to Azure with az... If this takes more than a few seconds, you probably need to authenticate with az login.'
     $apiKey = & az cognitiveservices account keys list `
         --name $AZURE_FOUNDRY_RESOURCE_NAME `
         --resource-group $AZURE_RESOURCE_GROUP_NAME `
@@ -195,6 +197,11 @@ $env:COPILOT_MODEL = $deploymentName
 $baseModel = $modelRows[$selectedIndex].base_model
 $env:COPILOT_PROVIDER_MODEL_ID = if ($baseModel) { $baseModel.Trim() } else { $deploymentName }
 $env:COPILOT_PROVIDER_WIRE_MODEL = $deploymentName
+
+if ($showLaunchMessage) {
+    Write-Host
+    Write-Host "Launching Copilot CLI with $deploymentName ($selectedEffort)..."
+}
 
 & copilot @copilotArgs
 $copilotExitCode = $LASTEXITCODE

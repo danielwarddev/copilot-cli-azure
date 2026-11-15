@@ -20,6 +20,9 @@ const cases = [
   { name: 'unsupported row', keys: [40, 39, 37], effort: null, model: 'plain' },
   { name: 'old CSV', keys: [39], effort: null, csv: `${header}\nreasoner,,1,0,0,2\n` },
   { name: 'direct args', keys: [], effort: 'high', args: ['reasoner', '--reasoning-effort', 'high'] },
+  { name: 'picker Azure authentication', keys: [], effort: 'medium', azure: true },
+  { name: 'direct Azure authentication', keys: [], effort: 'high', args: ['reasoner', '--reasoning-effort', 'high'], azure: true },
+  { name: 'failed Azure authentication', keys: [], azure: true, authFailure: true },
   { name: 'picker resume', keys: [], effort: 'medium', args: ['--resume=test-session'], handoffArgs: ['--reasoning-effort', 'medium', '--resume=test-session'] },
   { name: 'picker quoted args', keys: [], effort: 'medium', args: ['--resume', 'session with spaces'], handoffArgs: ['--reasoning-effort', 'medium', '--resume', 'session with spaces'] },
   { name: 'picker plain resume', keys: [40], effort: null, model: 'plain', args: ['--resume=test-session'], handoffArgs: ['--resume=test-session'] },
@@ -40,9 +43,10 @@ for (const shell of ['bash', 'powershell']) {
         .replace(/^[ \t]*terminal_width=.*$/m, `  terminal_width=${test.width ?? 120}`)
         .replace(/^copilot "\$@" \|\| copilot_status=\$\?$/m, 'printf "HANDOFF model=%s base=%s wire=%s args=%s\\n" "$COPILOT_MODEL" "$COPILOT_PROVIDER_MODEL_ID" "$COPILOT_PROVIDER_WIRE_MODEL" "$*"');
       const sequences = { 37: '\x1b[D', 38: '\x1b[A', 39: '\x1b[C', 40: '\x1b[B' };
-      result = spawnSync('bash', ['-c', 'eval "$PICKER_TEST_SOURCE"', 'caz', ...(test.args ?? [])], {
+      const azMock = test.authFailure ? 'az() { return 1; }; ' : "az() { printf '%s\\n' local-test-key; }; ";
+      result = spawnSync('bash', ['-c', `${azMock}eval "$PICKER_TEST_SOURCE"`, 'caz', ...(test.args ?? [])], {
         input: test.keys.map(key => sequences[key]).join('') + '\r',
-        env: { ...process.env, COPILOT_PROVIDER_API_KEY: 'local-test-key', PICKER_TEST_SOURCE: source },
+        env: { ...process.env, COPILOT_PROVIDER_API_KEY: test.azure ? '' : 'local-test-key', PICKER_TEST_SOURCE: source },
         encoding: 'utf8', timeout: 15000
       });
     } else {
@@ -53,7 +57,8 @@ for (const shell of ['bash', 'powershell']) {
         .replace(/\[Console\]::IsInputRedirected/, '$false')
         .replace(/\$Host.UI.RawUI.WindowSize.Width/, String(test.width ?? 120))
         .replace(/\$Host.UI.RawUI.ReadKey\('NoEcho,IncludeKeyDown'\)/, '[pscustomobject]@{ VirtualKeyCode = $keyQueue.Dequeue() }');
-      const command = `$env:COPILOT_PROVIDER_API_KEY='local-test-key'; $keyQueue=New-Object 'System.Collections.Generic.Queue[int]'; ${[...test.keys, 13].map(key => `$keyQueue.Enqueue(${key});`).join(' ')}
+      const command = `$env:COPILOT_PROVIDER_API_KEY='${test.azure ? '' : 'local-test-key'}'; $keyQueue=New-Object 'System.Collections.Generic.Queue[int]'; ${[...test.keys, 13].map(key => `$keyQueue.Enqueue(${key});`).join(' ')}
+function az { $global:LASTEXITCODE=${test.authFailure ? 1 : 0}; ${test.authFailure ? '' : "Write-Output 'local-test-key'"} }
 function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' -f $env:COPILOT_MODEL,$env:COPILOT_PROVIDER_MODEL_ID,$env:COPILOT_PROVIDER_WIRE_MODEL,($args -join ' ')); $global:LASTEXITCODE=0 }
 & ([scriptblock]::Create('${source.replaceAll("'", "''")}')) ${ (test.args ?? []).map(arg => `'${arg}'`).join(' ') }`;
       result = spawnSync('powershell.exe', ['-NoProfile', '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64')], {
@@ -62,7 +67,12 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
     }
     assert.ifError(result.error);
     const output = result.stdout + result.stderr;
-    if (test.invalid) {
+    if (test.authFailure) {
+      assert.notEqual(result.status, 0, `${shell}: ${test.name}`);
+      assert.ok(output.includes('Authenticating to Azure with az... If this takes more than a few seconds, you probably need to authenticate with az login.'), `${shell}: authentication message`);
+      assert.doesNotMatch(output, /^Launching Copilot CLI with /m, `${shell}: no launch message on authentication failure`);
+      assert.doesNotMatch(output, /^HANDOFF /m, `${shell}: no handoff on authentication failure`);
+    } else if (test.invalid) {
       assert.notEqual(result.status, 0, `${shell}: ${test.name}`);
       assert.match(output, /Invalid (default )?reasoning effort/, `${shell}: ${test.name}`);
     } else {
@@ -76,6 +86,12 @@ function copilot { Write-Output ('HANDOFF model={0} base={1} wire={2} args={3}' 
       assert.equal(handoff,   `HANDOFF model=${model} base=${base} wire=${model} args=${args}`, `${shell}: ${test.name}\n${output}`);
       if (test.effort && !test.args) assert.ok(output.includes(`(${test.effort})`), `${shell}: visible effort`);
       const usesPicker = !test.args?.length || test.args[0].startsWith('-');
+      const messages = shell === 'bash' ? result.stderr : output;
+      const authIndex = messages.indexOf('Authenticating to Azure with az... If this takes more than a few seconds, you probably need to authenticate with az login.');
+      assert.equal(authIndex >= 0, !!test.azure, `${shell}: authentication message\n${output}`);
+      if (test.azure && usesPicker) {
+        assert.ok(authIndex < messages.indexOf('Launching Copilot CLI'), `${shell}: authentication before launch\n${output}`);
+      }
       if (usesPicker) {
         const normalizedOutput = output.replaceAll('\r\n', '\n').replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '');
         assert.ok(normalizedOutput.includes(`\n\nLaunching Copilot CLI with ${model} (${test.effort ?? 'N/A'})...\n`), `${shell}: launch message and preceding blank line\n${output}`);
